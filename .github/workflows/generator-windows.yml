@@ -607,7 +607,10 @@ jobs:
           $myappname = "${{ inputs.appname }}" -replace '\s','_'
           cp "rustdesk/${{ inputs.appname }}.exe" "rustdesk/${myappname}.exe" -ErrorAction SilentlyContinue
           pushd ./res/msi
-          python preprocess.py --app-name "$myappname" --arp -d ../../rustdesk
+          # P0 fix 2026-05-07: pass explicit -v "1.4.7" to preprocess.py
+          # Forces MSI ProductVersion = 1.4.7.X, higher than existing 1.4.6.Y customer installs
+          # See RUSTDESK-MSI-INSTALL-BLOCKED-2026-05-07.html for diagnosis (Codex Pass 5)
+          python preprocess.py --app-name "$myappname" --arp -d ../../rustdesk -v "1.4.7"
           nuget restore msi.sln
           msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
           cp ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk-latest.msi
