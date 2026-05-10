@@ -376,7 +376,14 @@ jobs:
         if: ${{ inputs.iconlink != 'false' }}
         continue-on-error: true
         run: |
-          Invoke-WebRequest -Uri ${{ fromJson(inputs.iconlink).url }}/get_png?filename=${{ fromJson(inputs.iconlink).file }}"&"uuid=${{ fromJson(inputs.iconlink).uuid }} -OutFile ./res/icon.png 
+          # levor-build patch: accept iconlink as direct URL (starts with http/https) OR as rdgen JSON
+          $link = "${{ inputs.iconlink }}"
+          if ($link -match '^https?://') {
+            Invoke-WebRequest -Uri $link -OutFile ./res/icon.png
+          } else {
+            $obj = $link | ConvertFrom-Json
+            Invoke-WebRequest -Uri "$($obj.url)/get_png?filename=$($obj.file)&uuid=$($obj.uuid)" -OutFile ./res/icon.png
+          }
           mv ./res/32x32.png ./res/32x32.png.bak
           mv ./res/64x64.png ./res/64x64.png.bak
           mv ./res/128x128.png ./res/128x128.png.bak
@@ -479,32 +486,33 @@ jobs:
           Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat"
           mv -Force .\usbmmidd_v2 ./rustdesk   
 
-          # Download printer driver files and extract them to ./rustdesk
-          # try {
-          #   Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
-          #   Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
-          #   Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums -OutFile sha256sums
+          # levor-build patch: re-enable printer driver bundling (was disabled upstream).
+          # Required for enable-remote-printer=Y to actually work — without these files
+          # the toggle exists but no virtual printer is registered.
+          try {
+            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
+            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
+            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums -OutFile sha256sums
 
-          #   # Check and move the files
-          #   $checksum_driver = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4\.zip$').Matches.Groups[1].Value
-          #   $downloadsum_driver = Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256
-          #   $checksum_adapter = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*printer_driver_adapter\.zip$').Matches.Groups[1].Value
-          #   $downloadsum_adapter = Get-FileHash -Path printer_driver_adapter.zip -Algorithm SHA256
-          #   if ($checksum_driver -eq $downloadsum_driver.Hash -and $checksum_adapter -eq $downloadsum_adapter.Hash) {
-          #       Write-Output "rustdesk_printer_driver_v4-1.4, checksums match, extract the file."
-          #       Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath .
-          #       mkdir ./rustdesk/drivers
-          #       mv -Force .\rustdesk_printer_driver_v4-1.4 ./rustdesk/drivers/RustDeskPrinterDriver
-          #       Expand-Archive printer_driver_adapter.zip -DestinationPath .
-          #       mv -Force .\printer_driver_adapter.dll ./rustdesk
-          #   } elseif ($checksum_driver -ne $downloadsum_driver.Hash) {
-          #       Write-Output "rustdesk_printer_driver_v4-1.4, checksums do not match, ignore the file."
-          #   } else {
-          #       Write-Output "printer_driver_adapter.dll, checksums do not match, ignore the file."
-          #   }
-          # } catch {
-          #     Write-Host "Ingore the printer driver error."
-          # }
+            $checksum_driver = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4\.zip$').Matches.Groups[1].Value
+            $downloadsum_driver = Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256
+            $checksum_adapter = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*printer_driver_adapter\.zip$').Matches.Groups[1].Value
+            $downloadsum_adapter = Get-FileHash -Path printer_driver_adapter.zip -Algorithm SHA256
+            if ($checksum_driver -eq $downloadsum_driver.Hash -and $checksum_adapter -eq $downloadsum_adapter.Hash) {
+                Write-Output "rustdesk_printer_driver_v4-1.4, checksums match, extract the file."
+                Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath .
+                mkdir ./rustdesk/drivers
+                mv -Force .\rustdesk_printer_driver_v4-1.4 ./rustdesk/drivers/RustDeskPrinterDriver
+                Expand-Archive printer_driver_adapter.zip -DestinationPath .
+                mv -Force .\printer_driver_adapter.dll ./rustdesk
+            } elseif ($checksum_driver -ne $downloadsum_driver.Hash) {
+                Write-Output "rustdesk_printer_driver_v4-1.4, checksums do not match, ignore the file."
+            } else {
+                Write-Output "printer_driver_adapter.dll, checksums do not match, ignore the file."
+            }
+          } catch {
+              Write-Host "Ignore the printer driver error: $_"
+          }
 
       - name: icon stuff
         if: ${{ inputs.iconlink != 'false' }}
@@ -517,7 +525,14 @@ jobs:
         if: ${{ inputs.logolink != 'false' }}
         continue-on-error: true
         run: |
-          Invoke-WebRequest -Uri ${{ fromJson(inputs.logolink).url }}/get_png?filename=${{ fromJson(inputs.logolink).file }}"&"uuid=${{ fromJson(inputs.logolink).uuid }} -OutFile ./rustdesk/data/flutter_assets/assets/logo.png
+          # levor-build patch: accept logolink as direct URL (starts with http/https) OR as rdgen JSON
+          $link = "${{ inputs.logolink }}"
+          if ($link -match '^https?://') {
+            Invoke-WebRequest -Uri $link -OutFile ./rustdesk/data/flutter_assets/assets/logo.png
+          } else {
+            $obj = $link | ConvertFrom-Json
+            Invoke-WebRequest -Uri "$($obj.url)/get_png?filename=$($obj.file)&uuid=$($obj.uuid)" -OutFile ./rustdesk/data/flutter_assets/assets/logo.png
+          }
 
       - name: find Runner.res
         # Windows: find Runner.res (compiled from ./flutter/windows/runner/Runner.rc), copy to ./Runner.res
