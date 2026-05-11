@@ -577,16 +577,19 @@ jobs:
           name: bridge-artifact
           path: ./
 
-      # === levor-build patch: write custom.txt for direct mode ===
+      # === levor-build patch: write custom.txt + custom_.txt for direct mode ===
+      # allowCustom.py renames string references in src/common.rs from
+      # "custom.txt" -> "custom_.txt" but DOESN'T rename the actual file.
       - name: Create custom.txt file (direct mode)
         if: ${{ inputs.custom != '' }}
         shell: bash
         run: |
-          # Write base64 custom.txt to multiple paths so any rustdesk build path picks it up
           echo -n "${{ inputs.custom }}" > ./custom.txt
-          # Also write to src/ in case allowCustom.py picked that location
+          cp ./custom.txt ./custom_.txt
           cp ./custom.txt ./src/custom.txt 2>/dev/null || true
-          ls -la ./custom.txt ./src/custom.txt 2>/dev/null || true
+          cp ./custom.txt ./src/custom_.txt 2>/dev/null || true
+          ls -la ./custom.txt ./custom_.txt ./src/custom.txt ./src/custom_.txt 2>/dev/null || true
+          echo "custom.txt size: $(stat -f%z ./custom.txt 2>/dev/null || stat -c%s ./custom.txt) bytes"
 
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11

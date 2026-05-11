@@ -284,14 +284,20 @@ jobs:
           name: bridge-artifact
           path: ./
 
-      # === levor-build patch: write custom.txt for direct mode ===
+      # === levor-build patch: write custom.txt + custom_.txt for direct mode ===
+      # allowCustom.py renames string references in src/common.rs from
+      # "custom.txt" -> "custom_.txt" but DOESN'T rename the actual file.
+      # The Linux DEB packaging step expects ./custom_.txt at workspace root.
       - name: Create custom.txt file (direct mode)
         if: ${{ inputs.custom != '' }}
         shell: bash
         run: |
           echo -n "${{ inputs.custom }}" > ./custom.txt
+          cp ./custom.txt ./custom_.txt
           cp ./custom.txt ./src/custom.txt 2>/dev/null || true
-          ls -la ./custom.txt ./src/custom.txt 2>/dev/null || true
+          cp ./custom.txt ./src/custom_.txt 2>/dev/null || true
+          ls -la ./custom.txt ./custom_.txt ./src/custom.txt ./src/custom_.txt 2>/dev/null || true
+          echo "custom.txt size: $(stat -c%s ./custom.txt 2>/dev/null || stat -f%z ./custom.txt) bytes"
 
       - name: Setup vcpkg with Github Actions binary cache
         if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
