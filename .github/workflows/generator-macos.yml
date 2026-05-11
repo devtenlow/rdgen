@@ -817,7 +817,8 @@ jobs:
         
 
       - name: send file to api server
-        if: ${{ env.rdgen == 'false' }}
+        if: ${{ env.rdgen == 'false' && inputs.custom == '' }}
+        continue-on-error: true
         shell: bash
         run: |
           curl -i -X POST \
@@ -825,6 +826,33 @@ jobs:
             -H "Authorization: Bearer ${{ env.token }}" \
             -F "file=@$GITHUB_WORKSPACE/${{ env.filename }}-${{ matrix.job.arch }}.dmg" \
             "${{ env.apiServer }}/api/save_custom_client"
+
+      # === levor-build patch: also copy custom_.txt INTO the .app bundle
+      # (next to the binary) so runtime read_custom_client_file() finds it.
+      - name: Embed custom_.txt into .app bundle
+        if: ${{ inputs.custom != '' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          # Find the .app bundle
+          APP_DIR=$(find $GITHUB_WORKSPACE -maxdepth 5 -name "${{ env.appname }}.app" -type d | head -1)
+          if [ -z "$APP_DIR" ]; then
+            APP_DIR=$(find $GITHUB_WORKSPACE -maxdepth 5 -name "RustDesk.app" -type d | head -1)
+          fi
+          echo "Found .app at: $APP_DIR"
+          if [ -n "$APP_DIR" ]; then
+            cp $GITHUB_WORKSPACE/custom_.txt "$APP_DIR/Contents/MacOS/custom_.txt"
+            cp $GITHUB_WORKSPACE/custom_.txt "$APP_DIR/Contents/Resources/custom_.txt" 2>/dev/null || true
+            ls -la "$APP_DIR/Contents/MacOS/custom_.txt"
+          fi
+
+      # === levor-build patch: upload DMG as GitHub Actions artifact for direct-mode users ===
+      - name: Upload DMG artifact (levor-build direct mode)
+        if: ${{ inputs.custom != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.filename }}-${{ matrix.job.arch }}.dmg
+          path: ${{ env.filename }}-${{ matrix.job.arch }}.dmg
 
   cleanup:
     needs: [build-for-macos]
