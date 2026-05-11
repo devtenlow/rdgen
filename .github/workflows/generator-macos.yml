@@ -693,7 +693,8 @@ jobs:
               -o "$ASSETS_DIR/logo.png" || \
             wget --no-check-certificate \
               -O "$ASSETS_DIR/logo.png" \
-            "${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}&uuid=${{ env.logolink_uuid }}"
+              "${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}&uuid=${{ env.logolink_uuid }}"
+          fi
 
       - name: Sign macOS app bundle
         if: env.MACOS_P12_BASE64 != ''
