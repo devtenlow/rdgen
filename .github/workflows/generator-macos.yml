@@ -145,6 +145,8 @@ jobs:
           echo "filename=${{ inputs.filename }}" >> $GITHUB_ENV
           echo "uuid=${{ inputs.uuid }}" >> $GITHUB_ENV
           echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+          # custom: store base64 in env so existing 'echo "$env.custom" > ./custom_.txt' lines work
+          echo "custom=${{ inputs.custom }}" >> $GITHUB_ENV
           echo "compname=$(echo "$extras" | jq -r '.compname // "Levor Technologies"')" >> $GITHUB_ENV
           echo "urlLink=$(echo "$extras" | jq -r '.urlLink // ""')" >> $GITHUB_ENV
           echo "downloadLink=$(echo "$extras" | jq -r '.downloadLink // ""')" >> $GITHUB_ENV
