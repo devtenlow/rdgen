@@ -684,6 +684,24 @@ jobs:
           keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
           buildToolsVersion: 34.0.0
 
+      # levor-build patch: ilharp@v2 outputs <name>-signed.apk, but Upload step
+      # expects <name>.apk. Move the signed APK over the unsigned original.
+      - name: Replace unsigned APK with signed APK
+        if: env.ANDROID_SIGNING_KEY != null
+        shell: bash
+        run: |
+          UNSIGNED=./signed-apk/${{ env.filename }}-${{ matrix.job.arch }}.apk
+          SIGNED=./signed-apk/${{ env.filename }}-${{ matrix.job.arch }}-signed.apk
+          if [ -f "$SIGNED" ]; then
+            echo "Replacing $UNSIGNED with $SIGNED"
+            mv -f "$SIGNED" "$UNSIGNED"
+            ls -la ./signed-apk/
+          else
+            echo "WARNING: $SIGNED not found — sign step may have failed silently"
+            ls -la ./signed-apk/
+            exit 1
+          fi
+
       - name: send file to rdgen server
         if: ${{ env.rdgen == 'true' }}
         uses: nick-fields/retry@v3
