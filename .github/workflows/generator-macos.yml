@@ -1,17 +1,68 @@
 name: Custom macOS Client Generator
 run-name: Custom macOS Client Generator
-on: 
+on:
   workflow_dispatch:
     inputs:
       version:
         description: 'version to buld'
-        required: true
-        default: ''
+        required: false
+        default: '1.4.6'
         type: string
       zip_url:
-        description: 'url to zip of json'
-        required: true
+        description: 'url to zip of json (rdgen encrypted-secrets mode — leave empty for direct mode)'
+        required: false
         default: ''
+        type: string
+      # levor-build direct-inputs mode (when zip_url is empty)
+      server:
+        description: 'Rendezvous Server (direct mode)'
+        required: false
+        default: ''
+        type: string
+      key:
+        description: 'Public Key (direct mode)'
+        required: false
+        default: ''
+        type: string
+      apiServer:
+        description: 'API Server (direct mode)'
+        required: false
+        default: ''
+        type: string
+      custom:
+        description: 'Custom JSON base64 (direct mode)'
+        required: false
+        default: ''
+        type: string
+      uuid:
+        description: 'uuid of request (direct mode)'
+        required: false
+        default: ''
+        type: string
+      iconlink:
+        description: 'icon link — URL or rdgen JSON (direct mode)'
+        required: false
+        default: 'false'
+        type: string
+      logolink:
+        description: 'logo link — URL or rdgen JSON (direct mode)'
+        required: false
+        default: 'false'
+        type: string
+      appname:
+        description: 'app name (direct mode)'
+        required: false
+        default: 'rustdesk'
+        type: string
+      filename:
+        description: 'Filename (direct mode)'
+        required: false
+        default: 'rustdesk'
+        type: string
+      extras:
+        description: 'extra inputs json (direct mode)'
+        required: false
+        default: '{}'
         type: string
 
 env:
@@ -41,6 +92,7 @@ env:
 
 jobs:
   setup:
+    if: ${{ inputs.zip_url != '' }}
     uses: ./.github/workflows/fetch-encrypted-secrets.yml
     with:
       zip_url_json: ${{ inputs.zip_url }}
@@ -53,7 +105,7 @@ jobs:
   build-for-macos:
     name: ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
-    needs: [generate-bridge, setup]
+    needs: [generate-bridge]
     strategy:
       fail-fast: false
       matrix:
@@ -79,18 +131,80 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        
+
+      # === levor-build patch: direct mode (no encrypted secrets) ===
+      - name: Direct mode — populate env from inputs
+        if: ${{ inputs.custom != '' }}
+        shell: bash
+        run: |
+          extras='${{ inputs.extras }}'
+          echo "server=${{ inputs.server }}" >> $GITHUB_ENV
+          echo "key=${{ inputs.key }}" >> $GITHUB_ENV
+          echo "apiServer=${{ inputs.apiServer }}" >> $GITHUB_ENV
+          echo "appname=${{ inputs.appname }}" >> $GITHUB_ENV
+          echo "filename=${{ inputs.filename }}" >> $GITHUB_ENV
+          echo "uuid=${{ inputs.uuid }}" >> $GITHUB_ENV
+          echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+          echo "compname=$(echo "$extras" | jq -r '.compname // "Levor Technologies"')" >> $GITHUB_ENV
+          echo "urlLink=$(echo "$extras" | jq -r '.urlLink // ""')" >> $GITHUB_ENV
+          echo "downloadLink=$(echo "$extras" | jq -r '.downloadLink // ""')" >> $GITHUB_ENV
+          echo "delayFix=$(echo "$extras" | jq -r '.delayFix // "true"')" >> $GITHUB_ENV
+          echo "cycleMonitor=$(echo "$extras" | jq -r '.cycleMonitor // "false"')" >> $GITHUB_ENV
+          echo "xOffline=$(echo "$extras" | jq -r '.xOffline // "false"')" >> $GITHUB_ENV
+          echo "removeNewVersionNotif=$(echo "$extras" | jq -r '.removeNewVersionNotif // "false"')" >> $GITHUB_ENV
+          echo "hidecm=$(echo "$extras" | jq -r '.hidecm // "false"')" >> $GITHUB_ENV
+          echo "rdgen=false" >> $GITHUB_ENV
+          echo "token=none" >> $GITHUB_ENV
+          # iconlink: URL or rdgen JSON
+          LINK="${{ inputs.iconlink }}"
+          if [[ "$LINK" =~ ^https?:// ]]; then
+            echo "iconlink_url=$LINK" >> $GITHUB_ENV
+            echo "iconlink_file=direct" >> $GITHUB_ENV
+            echo "iconlink_uuid=direct" >> $GITHUB_ENV
+            echo "iconlink_direct=true" >> $GITHUB_ENV
+          elif [ "$LINK" != "false" ]; then
+            echo "iconlink_url=$(echo "$LINK" | jq -r .url)" >> $GITHUB_ENV
+            echo "iconlink_file=$(echo "$LINK" | jq -r .file)" >> $GITHUB_ENV
+            echo "iconlink_uuid=$(echo "$LINK" | jq -r .uuid)" >> $GITHUB_ENV
+            echo "iconlink_direct=false" >> $GITHUB_ENV
+          else
+            echo "iconlink_url=false" >> $GITHUB_ENV
+            echo "iconlink_direct=false" >> $GITHUB_ENV
+          fi
+          # logolink: URL or rdgen JSON
+          LINK2="${{ inputs.logolink }}"
+          if [[ "$LINK2" =~ ^https?:// ]]; then
+            echo "logolink_url=$LINK2" >> $GITHUB_ENV
+            echo "logolink_file=direct" >> $GITHUB_ENV
+            echo "logolink_uuid=direct" >> $GITHUB_ENV
+            echo "logolink_direct=true" >> $GITHUB_ENV
+          elif [ "$LINK2" != "false" ]; then
+            echo "logolink_url=$(echo "$LINK2" | jq -r .url)" >> $GITHUB_ENV
+            echo "logolink_file=$(echo "$LINK2" | jq -r .file)" >> $GITHUB_ENV
+            echo "logolink_uuid=$(echo "$LINK2" | jq -r .uuid)" >> $GITHUB_ENV
+            echo "logolink_direct=false" >> $GITHUB_ENV
+          else
+            echo "logolink_url=false" >> $GITHUB_ENV
+            echo "logolink_direct=false" >> $GITHUB_ENV
+          fi
+          # Stage custom.txt for later use
+          echo '${{ inputs.custom }}' > /tmp/custom-b64.txt
+          echo "CUSTOM_B64_PATH=/tmp/custom-b64.txt" >> $GITHUB_ENV
+
+      # === Encrypted-secrets mode (original rdgen flow) ===
       - uses: actions/download-artifact@v4
+        if: ${{ inputs.zip_url != '' }}
         with:
           name: encrypted-secrets-zip
 
       - name: Load Secrets
+        if: ${{ inputs.zip_url != '' }}
         uses: ./.github/actions/decrypt-secrets
         with:
           zip_password: ${{ secrets.ZIP_PASSWORD }}
 
       - name: Finalize and Cleanup zip/json
-        if: always() # Run even if previous steps fail
+        if: ${{ inputs.zip_url != '' && always() }}
         continue-on-error: true
         uses: fjogeleit/http-request-action@v1
         with:
@@ -277,15 +391,22 @@ jobs:
           # Create all necessary directories first
           mkdir -p ./res
           mkdir -p ./flutter/assets
+          # levor-build patch: direct URL fetch when iconlink_direct=true
+          if [ "${{ env.iconlink_direct }}" = "true" ]; then
+            curl -L "${{ env.iconlink_url }}" -o ./res/icon.png
+            ICON_FETCHED=1
+          fi
           mkdir -p ./flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset
           mkdir -p ./macos/Runner/Assets.xcassets/AppIcon.appiconset
           mkdir -p ./rustdesk/data/flutter_assets/assets
 
           # Download icon using curl with additional SSL options
-          curl -k -L --tlsv1.2 --proto =https --ssl-reqd \
-            -H "User-Agent: Mozilla/5.0" \
-            "${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}&uuid=${{ env.iconlink_uuid }}" \
-            -o ./res/icon.png || wget --no-check-certificate -O ./res/icon.png "${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}&uuid=${{ env.iconlink_uuid }}"
+          if [ -z "$ICON_FETCHED" ]; then
+            curl -k -L --tlsv1.2 --proto =https --ssl-reqd \
+              -H "User-Agent: Mozilla/5.0" \
+              "${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}&uuid=${{ env.iconlink_uuid }}" \
+              -o ./res/icon.png || wget --no-check-certificate -O ./res/icon.png "${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}&uuid=${{ env.iconlink_uuid }}"
+          fi
             
           # Backup existing files (if they exist)
           [ -f "./res/32x32.png" ] && mv ./res/32x32.png ./res/32x32.png.bak
@@ -451,10 +572,21 @@ jobs:
           sed -i '/let (request, url) =/,/Ok(())/{/Ok(())/!d}' ./src/common.rs
 
       - name: Restore bridge files
-        uses: actions/download-artifact@master
+        uses: actions/download-artifact@v4
         with:
           name: bridge-artifact
           path: ./
+
+      # === levor-build patch: write custom.txt for direct mode ===
+      - name: Create custom.txt file (direct mode)
+        if: ${{ inputs.custom != '' }}
+        shell: bash
+        run: |
+          # Write base64 custom.txt to multiple paths so any rustdesk build path picks it up
+          echo -n "${{ inputs.custom }}" > ./custom.txt
+          # Also write to src/ in case allowCustom.py picked that location
+          cp ./custom.txt ./src/custom.txt 2>/dev/null || true
+          ls -la ./custom.txt ./src/custom.txt 2>/dev/null || true
 
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
@@ -551,12 +683,16 @@ jobs:
         run: |
           ASSETS_DIR="build/macos/Build/Products/Release/RustDesk.app/Contents/Frameworks/App.framework/Versions/Current/Resources/flutter_assets/assets"
           mkdir -p "$ASSETS_DIR"
-          curl -k -L --tlsv1.2 --proto =https --ssl-reqd \
-            -H "User-Agent: Mozilla/5.0" \
-            "${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}&uuid=${{ env.logolink_uuid }}" \
-            -o "$ASSETS_DIR/logo.png" || \
-          wget --no-check-certificate \
-            -O "$ASSETS_DIR/logo.png" \
+          # levor-build patch: direct URL
+          if [ "${{ env.logolink_direct }}" = "true" ]; then
+            curl -L "${{ env.logolink_url }}" -o "$ASSETS_DIR/logo.png"
+          else
+            curl -k -L --tlsv1.2 --proto =https --ssl-reqd \
+              -H "User-Agent: Mozilla/5.0" \
+              "${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}&uuid=${{ env.logolink_uuid }}" \
+              -o "$ASSETS_DIR/logo.png" || \
+            wget --no-check-certificate \
+              -O "$ASSETS_DIR/logo.png" \
             "${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}&uuid=${{ env.logolink_uuid }}"
 
       - name: Sign macOS app bundle
