@@ -1,17 +1,68 @@
 name: Custom Android Client Generator
 run-name: Custom Android Client Generator
-on: 
+on:
   workflow_dispatch:
     inputs:
       version:
         description: 'version to buld'
-        required: true
-        default: ''
+        required: false
+        default: '1.4.6'
         type: string
       zip_url:
-        description: 'url to zip of json'
-        required: true
+        description: 'url to zip of json (rdgen encrypted-secrets mode — leave empty for direct mode)'
+        required: false
         default: ''
+        type: string
+      # levor-build direct-inputs mode
+      server:
+        description: 'Rendezvous Server (direct mode)'
+        required: false
+        default: ''
+        type: string
+      key:
+        description: 'Public Key (direct mode)'
+        required: false
+        default: ''
+        type: string
+      apiServer:
+        description: 'API Server (direct mode)'
+        required: false
+        default: ''
+        type: string
+      custom:
+        description: 'Custom JSON base64 (direct mode)'
+        required: false
+        default: ''
+        type: string
+      uuid:
+        description: 'uuid of request (direct mode)'
+        required: false
+        default: ''
+        type: string
+      iconlink:
+        description: 'icon link — URL or rdgen JSON (direct mode)'
+        required: false
+        default: 'false'
+        type: string
+      logolink:
+        description: 'logo link — URL or rdgen JSON (direct mode)'
+        required: false
+        default: 'false'
+        type: string
+      appname:
+        description: 'app name (direct mode)'
+        required: false
+        default: 'rustdesk'
+        type: string
+      filename:
+        description: 'Filename (direct mode)'
+        required: false
+        default: 'rustdesk'
+        type: string
+      extras:
+        description: 'extra inputs json (direct mode)'
+        required: false
+        default: '{}'
         type: string
 
 
@@ -42,6 +93,7 @@ env:
 
 jobs:
   setup:
+    if: ${{ inputs.zip_url != '' }}
     uses: ./.github/workflows/fetch-encrypted-secrets.yml
     with:
       zip_url_json: ${{ inputs.zip_url }}
@@ -52,7 +104,7 @@ jobs:
       version: ${{ inputs.version }}
 
   build-rustdesk-android:
-    needs: [generate-bridge-linux, setup]
+    needs: [generate-bridge-linux]
     name: build rustdesk android apk ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
     strategy:
@@ -83,18 +135,75 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        
+
+      # === levor-build patch: direct mode (no encrypted secrets) ===
+      - name: Direct mode — populate env from inputs
+        if: ${{ inputs.custom != '' }}
+        shell: bash
+        run: |
+          extras='${{ inputs.extras }}'
+          echo "server=${{ inputs.server }}" >> $GITHUB_ENV
+          echo "key=${{ inputs.key }}" >> $GITHUB_ENV
+          echo "apiServer=${{ inputs.apiServer }}" >> $GITHUB_ENV
+          echo "appname=${{ inputs.appname }}" >> $GITHUB_ENV
+          echo "filename=${{ inputs.filename }}" >> $GITHUB_ENV
+          echo "uuid=${{ inputs.uuid }}" >> $GITHUB_ENV
+          echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+          echo "custom=${{ inputs.custom }}" >> $GITHUB_ENV
+          echo "compname=$(echo "$extras" | jq -r '.compname // "Levor Technologies"')" >> $GITHUB_ENV
+          echo "urlLink=$(echo "$extras" | jq -r '.urlLink // ""')" >> $GITHUB_ENV
+          echo "downloadLink=$(echo "$extras" | jq -r '.downloadLink // ""')" >> $GITHUB_ENV
+          echo "delayFix=$(echo "$extras" | jq -r '.delayFix // "true"')" >> $GITHUB_ENV
+          echo "cycleMonitor=$(echo "$extras" | jq -r '.cycleMonitor // "false"')" >> $GITHUB_ENV
+          echo "xOffline=$(echo "$extras" | jq -r '.xOffline // "false"')" >> $GITHUB_ENV
+          echo "removeNewVersionNotif=$(echo "$extras" | jq -r '.removeNewVersionNotif // "false"')" >> $GITHUB_ENV
+          echo "hidecm=$(echo "$extras" | jq -r '.hidecm // "false"')" >> $GITHUB_ENV
+          echo "rdgen=false" >> $GITHUB_ENV
+          echo "token=none" >> $GITHUB_ENV
+          LINK="${{ inputs.iconlink }}"
+          if [[ "$LINK" =~ ^https?:// ]]; then
+            echo "iconlink_url=$LINK" >> $GITHUB_ENV
+            echo "iconlink_file=direct" >> $GITHUB_ENV
+            echo "iconlink_uuid=direct" >> $GITHUB_ENV
+            echo "iconlink_direct=true" >> $GITHUB_ENV
+          elif [ "$LINK" != "false" ]; then
+            echo "iconlink_url=$(echo "$LINK" | jq -r .url)" >> $GITHUB_ENV
+            echo "iconlink_file=$(echo "$LINK" | jq -r .file)" >> $GITHUB_ENV
+            echo "iconlink_uuid=$(echo "$LINK" | jq -r .uuid)" >> $GITHUB_ENV
+            echo "iconlink_direct=false" >> $GITHUB_ENV
+          else
+            echo "iconlink_url=false" >> $GITHUB_ENV
+            echo "iconlink_direct=false" >> $GITHUB_ENV
+          fi
+          LINK2="${{ inputs.logolink }}"
+          if [[ "$LINK2" =~ ^https?:// ]]; then
+            echo "logolink_url=$LINK2" >> $GITHUB_ENV
+            echo "logolink_file=direct" >> $GITHUB_ENV
+            echo "logolink_uuid=direct" >> $GITHUB_ENV
+            echo "logolink_direct=true" >> $GITHUB_ENV
+          elif [ "$LINK2" != "false" ]; then
+            echo "logolink_url=$(echo "$LINK2" | jq -r .url)" >> $GITHUB_ENV
+            echo "logolink_file=$(echo "$LINK2" | jq -r .file)" >> $GITHUB_ENV
+            echo "logolink_uuid=$(echo "$LINK2" | jq -r .uuid)" >> $GITHUB_ENV
+            echo "logolink_direct=false" >> $GITHUB_ENV
+          else
+            echo "logolink_url=false" >> $GITHUB_ENV
+            echo "logolink_direct=false" >> $GITHUB_ENV
+          fi
+
       - uses: actions/download-artifact@v4
+        if: ${{ inputs.zip_url != '' }}
         with:
           name: encrypted-secrets-zip
 
       - name: Load Secrets
+        if: ${{ inputs.zip_url != '' }}
         uses: ./.github/actions/decrypt-secrets
         with:
           zip_password: ${{ secrets.ZIP_PASSWORD }}
 
       - name: Finalize and Cleanup zip/json
-        if: always() # Run even if previous steps fail
+        if: ${{ inputs.zip_url != '' && always() }}
         continue-on-error: true
         uses: fjogeleit/http-request-action@v1
         with:
@@ -243,10 +352,24 @@ jobs:
         shell: bash
 
       - name: Restore bridge files
-        uses: actions/download-artifact@master
+        uses: actions/download-artifact@v4
         with:
           name: bridge-artifact
           path: ./
+
+      # === levor-build patch: write custom.txt + custom_.txt for direct mode ===
+      - name: Create custom.txt file (direct mode)
+        if: ${{ inputs.custom != '' }}
+        shell: bash
+        run: |
+          echo -n "${{ inputs.custom }}" > ./custom.txt
+          cp ./custom.txt ./custom_.txt
+          cp ./custom.txt ./src/custom.txt 2>/dev/null || true
+          cp ./custom.txt ./src/custom_.txt 2>/dev/null || true
+          mkdir -p ./flutter/assets
+          cp ./custom.txt ./flutter/assets/custom_.txt
+          ls -la ./custom.txt ./custom_.txt ./flutter/assets/custom_.txt 2>/dev/null || true
+          echo "Android custom.txt size: $(stat -c%s ./custom.txt) bytes"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@v1
@@ -465,7 +588,7 @@ jobs:
           esac
 
       - name: Upload Rustdesk library to Artifacts
-        uses: actions/upload-artifact@master
+        uses: actions/upload-artifact@v4
         with:
           name: librustdesk.so.${{ matrix.job.target }}
           path: ./target/${{ matrix.job.target }}/release/liblibrustdesk.so
@@ -566,7 +689,8 @@ jobs:
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./signed-apk/${{ env.filename }}-${{ matrix.job.arch }}.apk" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
 
       - name: send file to api server
-        if: ${{ env.rdgen == 'false' }}
+        if: ${{ env.rdgen == 'false' && inputs.custom == '' }}
+        continue-on-error: true
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 1
@@ -575,7 +699,16 @@ jobs:
           command: |
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./signed-apk/${{ env.filename }}-${{ matrix.job.arch }}.apk" ${{ env.apiServer }}/api/save_custom_client
 
+      # === levor-build patch: upload APK as GitHub Actions artifact for direct-mode ===
+      - name: Upload APK artifact (levor-build direct mode)
+        if: ${{ inputs.custom != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.filename }}-${{ matrix.job.arch }}.apk
+          path: ./signed-apk/${{ env.filename }}-${{ matrix.job.arch }}.apk
+
   deploy:
+    if: ${{ inputs.zip_url != '' }}
     needs: [build-rustdesk-android]
     runs-on: ubuntu-latest
     steps:
