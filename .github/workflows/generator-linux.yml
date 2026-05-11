@@ -1,17 +1,68 @@
 name: Custom Linux Client Generator
 run-name: Custom Linux Client Generator
-on: 
+on:
   workflow_dispatch:
     inputs:
       version:
         description: 'version to buld'
-        required: true
-        default: ''
+        required: false
+        default: '1.4.6'
         type: string
       zip_url:
-        description: 'url to zip of json'
-        required: true
+        description: 'url to zip of json (rdgen encrypted-secrets mode — leave empty for direct mode)'
+        required: false
         default: ''
+        type: string
+      # levor-build direct-inputs mode (when zip_url is empty)
+      server:
+        description: 'Rendezvous Server (direct mode)'
+        required: false
+        default: ''
+        type: string
+      key:
+        description: 'Public Key (direct mode)'
+        required: false
+        default: ''
+        type: string
+      apiServer:
+        description: 'API Server (direct mode)'
+        required: false
+        default: ''
+        type: string
+      custom:
+        description: 'Custom JSON base64 (direct mode)'
+        required: false
+        default: ''
+        type: string
+      uuid:
+        description: 'uuid of request (direct mode)'
+        required: false
+        default: ''
+        type: string
+      iconlink:
+        description: 'icon link — URL or rdgen JSON (direct mode)'
+        required: false
+        default: 'false'
+        type: string
+      logolink:
+        description: 'logo link — URL or rdgen JSON (direct mode)'
+        required: false
+        default: 'false'
+        type: string
+      appname:
+        description: 'app name (direct mode)'
+        required: false
+        default: 'rustdesk'
+        type: string
+      filename:
+        description: 'Filename (direct mode)'
+        required: false
+        default: 'rustdesk'
+        type: string
+      extras:
+        description: 'extra inputs json (direct mode)'
+        required: false
+        default: '{}'
         type: string
 
 env:
@@ -42,6 +93,7 @@ env:
 
 jobs:
   setup:
+    if: ${{ inputs.zip_url != '' }}
     uses: ./.github/workflows/fetch-encrypted-secrets.yml
     with:
       zip_url_json: ${{ inputs.zip_url }}
@@ -52,7 +104,7 @@ jobs:
       version: ${{ inputs.version }}
 
   build-rustdesk-linux:
-    needs: [generate-bridge-linux, setup]
+    needs: [generate-bridge-linux]
     name: build rustdesk linux ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.on }}
     strategy:
@@ -79,12 +131,71 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        
+
+      # === levor-build patch: direct mode (no encrypted secrets) ===
+      - name: Direct mode — populate env from inputs
+        if: ${{ inputs.custom != '' }}
+        shell: bash
+        run: |
+          extras='${{ inputs.extras }}'
+          echo "server=${{ inputs.server }}" >> $GITHUB_ENV
+          echo "key=${{ inputs.key }}" >> $GITHUB_ENV
+          echo "apiServer=${{ inputs.apiServer }}" >> $GITHUB_ENV
+          echo "appname=${{ inputs.appname }}" >> $GITHUB_ENV
+          echo "filename=${{ inputs.filename }}" >> $GITHUB_ENV
+          echo "uuid=${{ inputs.uuid }}" >> $GITHUB_ENV
+          echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+          echo "compname=$(echo "$extras" | jq -r '.compname // "Levor Technologies"')" >> $GITHUB_ENV
+          echo "urlLink=$(echo "$extras" | jq -r '.urlLink // ""')" >> $GITHUB_ENV
+          echo "downloadLink=$(echo "$extras" | jq -r '.downloadLink // ""')" >> $GITHUB_ENV
+          echo "delayFix=$(echo "$extras" | jq -r '.delayFix // "true"')" >> $GITHUB_ENV
+          echo "cycleMonitor=$(echo "$extras" | jq -r '.cycleMonitor // "false"')" >> $GITHUB_ENV
+          echo "xOffline=$(echo "$extras" | jq -r '.xOffline // "false"')" >> $GITHUB_ENV
+          echo "removeNewVersionNotif=$(echo "$extras" | jq -r '.removeNewVersionNotif // "false"')" >> $GITHUB_ENV
+          echo "hidecm=$(echo "$extras" | jq -r '.hidecm // "false"')" >> $GITHUB_ENV
+          echo "rdgen=false" >> $GITHUB_ENV
+          echo "token=none" >> $GITHUB_ENV
+          # iconlink: URL or rdgen JSON
+          LINK="${{ inputs.iconlink }}"
+          if [[ "$LINK" =~ ^https?:// ]]; then
+            echo "iconlink_url=$LINK" >> $GITHUB_ENV
+            echo "iconlink_file=direct" >> $GITHUB_ENV
+            echo "iconlink_uuid=direct" >> $GITHUB_ENV
+            echo "iconlink_direct=true" >> $GITHUB_ENV
+          elif [ "$LINK" != "false" ]; then
+            echo "iconlink_url=$(echo "$LINK" | jq -r .url)" >> $GITHUB_ENV
+            echo "iconlink_file=$(echo "$LINK" | jq -r .file)" >> $GITHUB_ENV
+            echo "iconlink_uuid=$(echo "$LINK" | jq -r .uuid)" >> $GITHUB_ENV
+            echo "iconlink_direct=false" >> $GITHUB_ENV
+          else
+            echo "iconlink_url=false" >> $GITHUB_ENV
+            echo "iconlink_direct=false" >> $GITHUB_ENV
+          fi
+          # logolink: URL or rdgen JSON
+          LINK2="${{ inputs.logolink }}"
+          if [[ "$LINK2" =~ ^https?:// ]]; then
+            echo "logolink_url=$LINK2" >> $GITHUB_ENV
+            echo "logolink_file=direct" >> $GITHUB_ENV
+            echo "logolink_uuid=direct" >> $GITHUB_ENV
+            echo "logolink_direct=true" >> $GITHUB_ENV
+          elif [ "$LINK2" != "false" ]; then
+            echo "logolink_url=$(echo "$LINK2" | jq -r .url)" >> $GITHUB_ENV
+            echo "logolink_file=$(echo "$LINK2" | jq -r .file)" >> $GITHUB_ENV
+            echo "logolink_uuid=$(echo "$LINK2" | jq -r .uuid)" >> $GITHUB_ENV
+            echo "logolink_direct=false" >> $GITHUB_ENV
+          else
+            echo "logolink_url=false" >> $GITHUB_ENV
+            echo "logolink_direct=false" >> $GITHUB_ENV
+          fi
+
+      # === Encrypted-secrets mode (original rdgen flow) ===
       - uses: actions/download-artifact@v4
+        if: ${{ inputs.zip_url != '' }}
         with:
           name: encrypted-secrets-zip
 
       - name: Load Secrets
+        if: ${{ inputs.zip_url != '' }}
         uses: ./.github/actions/decrypt-secrets
         with:
           zip_password: ${{ secrets.ZIP_PASSWORD }}
@@ -168,10 +279,19 @@ jobs:
 
       - name: Restore bridge files
         if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
-        uses: actions/download-artifact@master
+        uses: actions/download-artifact@v4
         with:
           name: bridge-artifact
           path: ./
+
+      # === levor-build patch: write custom.txt for direct mode ===
+      - name: Create custom.txt file (direct mode)
+        if: ${{ inputs.custom != '' }}
+        shell: bash
+        run: |
+          echo -n "${{ inputs.custom }}" > ./custom.txt
+          cp ./custom.txt ./src/custom.txt 2>/dev/null || true
+          ls -la ./custom.txt ./src/custom.txt 2>/dev/null || true
 
       - name: Setup vcpkg with Github Actions binary cache
         if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
@@ -212,7 +332,12 @@ jobs:
             mv ./res/icon.ico ./res/icon.ico.bak
             mv ./res/icon.png ./res/icon.png.bak
             mv ./res/tray-icon.ico ./res/tray-icon.ico.bak
-            wget -O ./res/icon.png ${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}"&"uuid=${{ env.iconlink_uuid }}
+            # levor-build patch: direct URL fetch
+            if [ "${{ env.iconlink_direct }}" = "true" ]; then
+              curl -L "${{ env.iconlink_url }}" -o ./res/icon.png
+            else
+              wget -O ./res/icon.png ${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}"&"uuid=${{ env.iconlink_uuid }}
+            fi
             mv ./res/32x32.png ./res/32x32.png.bak
             mv ./res/64x64.png ./res/64x64.png.bak
             mv ./res/128x128.png ./res/128x128.png.bak
@@ -337,13 +462,13 @@ jobs:
       - name: removeNewVersionNotif
         continue-on-error: true
         if: env.removeNewVersionNotif == 'true'
-        run: | 
+        run: |
           sed -i -e 's|updateUrl.isNotEmpty|false|' ./flutter/lib/desktop/pages/desktop_home_page.dart
           sed -i '/let (request, url) =/,/Ok(())/{/Ok(())/!d}' ./src/common.rs
 
       - name: Restore bridge files
         if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
-        uses: actions/download-artifact@master
+        uses: actions/download-artifact@v4
         with:
           name: bridge-artifact
           path: ./
@@ -493,7 +618,12 @@ jobs:
             mkdir -p flutter/tmpdeb/usr/share/rustdesk
             cp ./custom_.txt ./flutter/tmpdeb/usr/share/rustdesk/custom_.txt
             if [[ "${{ env.logolink_url }}" != "false" ]]; then
-              wget -O ./flutter/assets/logo.png ${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}"&"uuid=${{ env.logolink_uuid }}
+              # levor-build patch: direct URL fetch
+              if [[ "${{ env.logolink_direct }}" == "true" ]]; then
+                curl -L "${{ env.logolink_url }}" -o ./flutter/assets/logo.png
+              else
+                wget -O ./flutter/assets/logo.png ${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}"&"uuid=${{ env.logolink_uuid }}
+              fi
             fi
             if [[ "${{ env.iconlink_url }}" != "false" ]]; then
               mv ./flutter/assets/icon.svg ./flutter/assets/icon.svg.bak
@@ -595,13 +725,14 @@ jobs:
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst" ${{ env.apiServer }}/api/save_custom_client || true
 
       - name: Upload deb
-        uses: actions/upload-artifact@master
+        uses: actions/upload-artifact@v4
         if: env.UPLOAD_ARTIFACT == 'true'
         with:
           name: ${{ env.filename }}-${{ matrix.job.arch }}.deb
           path: ./output/${{ env.filename }}-${{ matrix.job.arch }}.deb
 
   build-appimage:
+    if: ${{ inputs.zip_url != '' }}
     name: Build appimage ${{ matrix.job.target }}
     needs: [build-rustdesk-linux]
     runs-on: ubuntu-22.04
@@ -683,6 +814,7 @@ jobs:
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./appimage/${{ env.filename }}-${{ matrix.job.arch }}.AppImage" ${{ env.apiServer }}/api/save_custom_client
 
   build-flatpak:
+    if: ${{ inputs.zip_url != '' }}
     name: Build flatpak ${{ matrix.job.target }}${{ matrix.job.suffix }}
     needs:
       - build-rustdesk-linux
@@ -795,7 +927,7 @@ jobs:
 
   deploy:
     needs: [build-rustdesk-linux,build-flatpak,build-appimage]
-    if: always()
+    if: ${{ inputs.zip_url != '' && always() }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
